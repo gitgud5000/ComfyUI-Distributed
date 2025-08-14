@@ -2207,13 +2207,172 @@ class ImageBatchDivider:
         return tuple(outputs)
 
 
+# --- Distributed List Parameter Nodes ---
+
+def _parse_value_list(values_str, caster):
+    """Parse list from JSON or comma-separated string and cast items.
+    caster: callable to cast individual items (int/float/str).
+    """
+    try:
+        # Try JSON first
+        data = json.loads(values_str)
+        if isinstance(data, list):
+            return [caster(x) for x in data]
+        # If a single scalar in JSON, wrap it
+        return [caster(data)]
+    except Exception:
+        # Fallback: comma/newline separated
+        parts = [p.strip() for p in values_str.replace("\n", ",").split(",") if p.strip() != ""]
+        out = []
+        for p in parts:
+            try:
+                out.append(caster(p))
+            except Exception:
+                # Skip uncastable entries silently
+                continue
+        return out
+
+
+def _get_worker_index(worker_id, enabled_worker_ids_str):
+    """Return zero-based worker index. Prefer enabled_worker_ids if provided.
+    Fallback to numeric worker_id or 0.
+    """
+    try:
+        if enabled_worker_ids_str:
+            ids = json.loads(enabled_worker_ids_str) if isinstance(enabled_worker_ids_str, str) else list(enabled_worker_ids_str)
+            # Normalize to strings
+            ids = [str(x) for x in ids]
+            wid = str(worker_id)
+            if wid in ids:
+                return ids.index(wid)
+    except Exception:
+        pass
+    # Fallback: numeric worker_id (commonly 1-based in UI configs); clamp to >=0
+    try:
+        idx = int(worker_id)
+        if idx > 0:
+            return idx - 1
+        return max(0, idx)
+    except Exception:
+        return 0
+
+
+class DistributedListInt:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "values": ("STRING", {
+                    "default": "1,2,3",
+                    "multiline": True,
+                    "tooltip": "JSON or comma-separated integers. Example: [1,2,3] or 1,2,3"
+                }),
+            },
+            "hidden": {
+                "is_worker": ("BOOLEAN", {"default": False}),
+                "worker_id": ("STRING", {"default": ""}),
+                "enabled_worker_ids": ("STRING", {"default": "[]"}),
+            },
+        }
+
+    RETURN_TYPES = ("INT",)
+    RETURN_NAMES = ("value",)
+    FUNCTION = "distribute"
+    CATEGORY = "utils"
+
+    def distribute(self, values, is_worker=False, worker_id="", enabled_worker_ids="[]"):
+        vals = _parse_value_list(values, int)
+        if not vals:
+            debug_log("DistributedListInt: empty values list; returning 0")
+            return (0,)
+        if not is_worker:
+            return (vals[0],)
+        idx = _get_worker_index(worker_id, enabled_worker_ids)
+        return (vals[idx % len(vals)],)
+
+
+class DistributedListFloat:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "values": ("STRING", {
+                    "default": "0.1,0.2,0.3",
+                    "multiline": True,
+                    "tooltip": "JSON or comma-separated floats. Example: [0.1,0.2] or 0.1,0.2"
+                }),
+            },
+            "hidden": {
+                "is_worker": ("BOOLEAN", {"default": False}),
+                "worker_id": ("STRING", {"default": ""}),
+                "enabled_worker_ids": ("STRING", {"default": "[]"}),
+            },
+        }
+
+    RETURN_TYPES = ("FLOAT",)
+    RETURN_NAMES = ("value",)
+    FUNCTION = "distribute"
+    CATEGORY = "utils"
+
+    def distribute(self, values, is_worker=False, worker_id="", enabled_worker_ids="[]"):
+        vals = _parse_value_list(values, float)
+        if not vals:
+            debug_log("DistributedListFloat: empty values list; returning 0.0")
+            return (0.0,)
+        if not is_worker:
+            return (vals[0],)
+        idx = _get_worker_index(worker_id, enabled_worker_ids)
+        return (vals[idx % len(vals)],)
+
+
+class DistributedListString:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "values": ("STRING", {
+                    "default": "a,b,c",
+                    "multiline": True,
+                    "tooltip": "JSON or comma-separated strings. Example: [\"a\",\"b\"] or a,b"
+                }),
+            },
+            "hidden": {
+                "is_worker": ("BOOLEAN", {"default": False}),
+                "worker_id": ("STRING", {"default": ""}),
+                "enabled_worker_ids": ("STRING", {"default": "[]"}),
+            },
+        }
+
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("value",)
+    FUNCTION = "distribute"
+    CATEGORY = "utils"
+
+    def distribute(self, values, is_worker=False, worker_id="", enabled_worker_ids="[]"):
+        # For strings, keep as-is; caster=str
+        vals = _parse_value_list(values, str)
+        if not vals:
+            debug_log("DistributedListString: empty values list; returning empty string")
+            return ("",)
+        if not is_worker:
+            return (vals[0],)
+        idx = _get_worker_index(worker_id, enabled_worker_ids)
+        return (vals[idx % len(vals)],)
+
+
 NODE_CLASS_MAPPINGS = { 
     "DistributedCollector": DistributedCollectorNode,
     "DistributedSeed": DistributedSeed,
-    "ImageBatchDivider": ImageBatchDivider
+    "ImageBatchDivider": ImageBatchDivider,
+    "DistributedListInt": DistributedListInt,
+    "DistributedListFloat": DistributedListFloat,
+    "DistributedListString": DistributedListString,
 }
 NODE_DISPLAY_NAME_MAPPINGS = { 
     "DistributedCollector": "Distributed Collector",
     "DistributedSeed": "Distributed Seed",
-    "ImageBatchDivider": "Image Batch Divider"
+    "ImageBatchDivider": "Image Batch Divider",
+    "DistributedListInt": "Distributed List (Int)",
+    "DistributedListFloat": "Distributed List (Float)",
+    "DistributedListString": "Distributed List (String)",
 }
