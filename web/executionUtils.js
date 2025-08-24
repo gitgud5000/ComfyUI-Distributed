@@ -253,6 +253,50 @@ export async function prepareApiPromptForParticipant(extension, baseApiPrompt, p
             extension.log(`Set seed node ${seedNode.id} for worker ${workerIndex}`, "debug");
         }
     }
+
+    // Handle DistributedListInt, DistributedListFloat, DistributedListString nodes (parallel to DistributedSeed handling)
+    const listIntNodes = findNodesByClass(jobApiPrompt, "DistributedListInt");
+    const listFloatNodes = findNodesByClass(jobApiPrompt, "DistributedListFloat");
+    const listStringNodes = findNodesByClass(jobApiPrompt, "DistributedListString");
+
+    if (listIntNodes.length > 0) {
+        extension.log(`Found ${listIntNodes.length} DistributedListInt node(s)`, "debug");
+    }
+    for (const listNode of listIntNodes) {
+        const { inputs } = jobApiPrompt[listNode.id];
+        inputs.is_worker = !isMaster;
+        if (!isMaster) {
+            const workerIndex = options.enabled_worker_ids.indexOf(participantId);
+            inputs.worker_id = `worker_${workerIndex}`;
+            extension.log(`Set DistributedListInt node ${listNode.id} for worker ${workerIndex}`, "debug");
+        }
+    }
+
+    if (listFloatNodes.length > 0) {
+        extension.log(`Found ${listFloatNodes.length} DistributedListFloat node(s)`, "debug");
+    }
+    for (const listNode of listFloatNodes) {
+        const { inputs } = jobApiPrompt[listNode.id];
+        inputs.is_worker = !isMaster;
+        if (!isMaster) {
+            const workerIndex = options.enabled_worker_ids.indexOf(participantId);
+            inputs.worker_id = `worker_${workerIndex}`;
+            extension.log(`Set DistributedListFloat node ${listNode.id} for worker ${workerIndex}`, "debug");
+        }
+    }
+
+    if (listStringNodes.length > 0) {
+        extension.log(`Found ${listStringNodes.length} DistributedListString node(s)`, "debug");
+    }
+    for (const listNode of listStringNodes) {
+        const { inputs } = jobApiPrompt[listNode.id];
+        inputs.is_worker = !isMaster;
+        if (!isMaster) {
+            const workerIndex = options.enabled_worker_ids.indexOf(participantId);
+            inputs.worker_id = `worker_${workerIndex}`;
+            extension.log(`Set DistributedListString node ${listNode.id} for worker ${workerIndex}`, "debug");
+        }
+    }
     
     // Handle Distributed collector nodes (already found above)
     for (const collector of collectorNodes) {
