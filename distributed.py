@@ -2231,32 +2231,6 @@ def _parse_value_list(values_str, caster):
                 # Skip uncastable entries silently
                 continue
         return out
-
-
-def _get_worker_index(worker_id, enabled_worker_ids_str):
-    """Return zero-based worker index. Prefer enabled_worker_ids if provided.
-    Fallback to numeric worker_id or 0.
-    """
-    try:
-        if enabled_worker_ids_str:
-            ids = json.loads(enabled_worker_ids_str) if isinstance(enabled_worker_ids_str, str) else list(enabled_worker_ids_str)
-            # Normalize to strings
-            ids = [str(x) for x in ids]
-            wid = str(worker_id)
-            if wid in ids:
-                return ids.index(wid)
-    except Exception:
-        pass
-    # Fallback: numeric worker_id (commonly 1-based in UI configs); clamp to >=0
-    try:
-        idx = int(worker_id)
-        if idx > 0:
-            return idx - 1
-        return max(0, idx)
-    except Exception:
-        return 0
-
-
 class DistributedListInt:
     @classmethod
     def INPUT_TYPES(cls):
@@ -2271,7 +2245,6 @@ class DistributedListInt:
             "hidden": {
                 "is_worker": ("BOOLEAN", {"default": False}),
                 "worker_id": ("STRING", {"default": ""}),
-                "enabled_worker_ids": ("STRING", {"default": "[]"}),
             },
         }
 
@@ -2280,15 +2253,28 @@ class DistributedListInt:
     FUNCTION = "distribute"
     CATEGORY = "utils"
 
-    def distribute(self, values, is_worker=False, worker_id="", enabled_worker_ids="[]"):
+    def distribute(self, values, is_worker=False, worker_id=""):
         vals = _parse_value_list(values, int)
         if not vals:
-            debug_log("DistributedListInt: empty values list; returning 0")
+            debug_log("Distributor[Int] - Empty values list; returning 0")
             return (0,)
         if not is_worker:
+            chosen = vals[0]
+            debug_log(f"Distributor[Int] - Master: values={vals} → {chosen}")
+            return (chosen,)
+        # Worker: match DistributedSeed parsing of worker_id
+        try:
+            if worker_id.startswith("worker_"):
+                worker_index = int(worker_id.split("_")[1])
+            else:
+                worker_index = int(worker_id)
+            
+            chosen = vals[(worker_index+1) % len(vals)]
+            debug_log(f"Distributor[Int] - Worker {worker_index}: values={vals} → {chosen}")
+            return (chosen,)
+        except (ValueError, IndexError) as e:
+            debug_log(f"Distributor[Int] - Error parsing worker_id '{worker_id}': {e}")
             return (vals[0],)
-        idx = _get_worker_index(worker_id, enabled_worker_ids)
-        return (vals[idx % len(vals)],)
 
 
 class DistributedListFloat:
@@ -2305,7 +2291,6 @@ class DistributedListFloat:
             "hidden": {
                 "is_worker": ("BOOLEAN", {"default": False}),
                 "worker_id": ("STRING", {"default": ""}),
-                "enabled_worker_ids": ("STRING", {"default": "[]"}),
             },
         }
 
@@ -2314,15 +2299,26 @@ class DistributedListFloat:
     FUNCTION = "distribute"
     CATEGORY = "utils"
 
-    def distribute(self, values, is_worker=False, worker_id="", enabled_worker_ids="[]"):
+    def distribute(self, values, is_worker=False, worker_id=""):
         vals = _parse_value_list(values, float)
         if not vals:
-            debug_log("DistributedListFloat: empty values list; returning 0.0")
+            debug_log("Distributor[Float] - Empty values list; returning 0.0")
             return (0.0,)
         if not is_worker:
+            chosen = vals[0]
+            debug_log(f"Distributor[Float] - Master: values={vals} → {chosen}")
+            return (chosen,)
+        try:
+            if worker_id.startswith("worker_"):
+                worker_index = int(worker_id.split("_")[1])
+            else:
+                worker_index = int(worker_id)
+            chosen = vals[(worker_index+1) % len(vals)]
+            debug_log(f"Distributor[Float] - Worker {worker_index}: values={vals} → {chosen}")
+            return (chosen,)
+        except (ValueError, IndexError) as e:
+            debug_log(f"Distributor[Float] - Error parsing worker_id '{worker_id}': {e}")
             return (vals[0],)
-        idx = _get_worker_index(worker_id, enabled_worker_ids)
-        return (vals[idx % len(vals)],)
 
 
 class DistributedListString:
@@ -2339,7 +2335,6 @@ class DistributedListString:
             "hidden": {
                 "is_worker": ("BOOLEAN", {"default": False}),
                 "worker_id": ("STRING", {"default": ""}),
-                "enabled_worker_ids": ("STRING", {"default": "[]"}),
             },
         }
 
@@ -2348,16 +2343,26 @@ class DistributedListString:
     FUNCTION = "distribute"
     CATEGORY = "utils"
 
-    def distribute(self, values, is_worker=False, worker_id="", enabled_worker_ids="[]"):
-        # For strings, keep as-is; caster=str
+    def distribute(self, values, is_worker=False, worker_id=""):
         vals = _parse_value_list(values, str)
         if not vals:
-            debug_log("DistributedListString: empty values list; returning empty string")
+            debug_log("Distributor[String] - Empty values list; returning ''")
             return ("",)
         if not is_worker:
+            chosen = vals[0]
+            debug_log(f"Distributor[String] - Master: values={vals} → {chosen}")
+            return (chosen,)
+        try:
+            if worker_id.startswith("worker_"):
+                worker_index = int(worker_id.split("_")[1])
+            else:
+                worker_index = int(worker_id)
+            chosen = vals[(worker_index+1) % len(vals)]
+            debug_log(f"Distributor[String] - Worker {worker_index}: values={vals} → {chosen}")
+            return (chosen,)
+        except (ValueError, IndexError) as e:
+            debug_log(f"Distributor[String] - Error parsing worker_id '{worker_id}': {e}")
             return (vals[0],)
-        idx = _get_worker_index(worker_id, enabled_worker_ids)
-        return (vals[idx % len(vals)],)
 
 
 NODE_CLASS_MAPPINGS = { 
@@ -2372,7 +2377,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "DistributedCollector": "Distributed Collector",
     "DistributedSeed": "Distributed Seed",
     "ImageBatchDivider": "Image Batch Divider",
-    "DistributedListInt": "Distributed List (Int)",
-    "DistributedListFloat": "Distributed List (Float)",
-    "DistributedListString": "Distributed List (String)",
+    "DistributedListInt": "Distributed List 🔢(Int)",
+    "DistributedListFloat": "Distributed List 🔢(Float)",
+    "DistributedListString": "Distributed List 📃(String)",
 }
